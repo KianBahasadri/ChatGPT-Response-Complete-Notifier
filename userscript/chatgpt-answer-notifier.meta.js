@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Prompt-Bound Completion Alert
 // @namespace    https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
-// @version      1.1.3
-// @description  Sound + native notification when ChatGPT finishes. Preview is structurally bound to the latest user prompt so the previous answer cannot be selected.
+// @version      1.2.0
+// @description  Loud repeating chime + desktop notification when ChatGPT finishes, with previews bound to the latest user prompt.
 // @author       Local
 // @homepageURL  https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
 // @supportURL   https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/issues
@@ -15,6 +15,7 @@
 // @sandbox      JavaScript
 // @grant        unsafeWindow
 // @grant        GM_registerMenuCommand
+// @grant        GM_notification
 // @grant        window.focus
 // @noframes
 // ==/UserScript==

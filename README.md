@@ -26,7 +26,13 @@ The **title is the current ChatGPT conversation name**. The **body is a truncate
 
 [Install the userscript](https://raw.githubusercontent.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/main/userscript/chatgpt-answer-notifier.user.js).
 
-Installation, update checks, and support links point to this fork. The userscript includes a locally generated two-tone completion chime; no audio file is downloaded. After installing, reload ChatGPT and interact with the page once to enable audio. Use **Test sound + notification** in your userscript manager's menu to check it. Muted tabs, browser autoplay rules, and operating-system notification settings may still suppress alerts.
+Installation, update checks, and support links point to this fork. Version **1.2.0** plays a louder, roughly 1.8-second alert: two ascending three-note bursts, generated locally without downloading an audio file. Each note has its own volume envelope, so the later notes are as audible as the first.
+
+Desktop notifications use **Tampermonkey/Violentmonkey's notification API**, with the required `GM_notification` grant. This does not depend on granting `chatgpt.com` website notification permission. When upgrading, accept the new notification grant in your userscript manager, reload ChatGPT, and interact with the page once to enable audio. Use **Test sound + notification** in the manager's menu to check both channels.
+
+If the manager API is unavailable or fails, the script tries an already-permitted website notification. If neither channel is available, it displays an on-page warning with permission guidance. A browser or operating system can still suppress notifications, including through Do Not Disturb or disabled notifications for Firefox/the userscript manager. Muted tabs and autoplay rules can suppress the sound.
+
+Run the userscript's regression checks with `node --test tests/userscript.test.cjs`. They cover completion in a background tab, blocked website permission, notification fallback, blocked audio, and the repeated alert's audio scheduling. Actual desktop delivery and perceived loudness still need to be checked in the target browser.
 
 ## Pick your version
 

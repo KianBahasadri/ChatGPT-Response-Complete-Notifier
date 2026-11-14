@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Prompt-Bound Completion Alert
 // @namespace    https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
-// @version      1.1.3
-// @description  Sound + native notification when ChatGPT finishes. Preview is structurally bound to the latest user prompt so the previous answer cannot be selected.
+// @version      1.2.0
+// @description  Loud repeating chime + desktop notification when ChatGPT finishes, with previews bound to the latest user prompt.
 // @author       Local
 // @homepageURL  https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
 // @supportURL   https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/issues
@@ -15,6 +15,7 @@
 // @sandbox      JavaScript
 // @grant        unsafeWindow
 // @grant        GM_registerMenuCommand
+// @grant        GM_notification
 // @grant        window.focus
 // @noframes
 // ==/UserScript==
@@ -22,7 +23,8 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.1.3';
+  const VERSION = '1.2.0';
+  const CHIME_VOLUME = 0.70; // Peak amplitude, from 0 to 1.
   const NOTIFICATION_ICON = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAADR0lEQVR4nO2dXXIiMQwGzdYeYS7B/Q/DcbJPVLEkBHuQ9fd1PxPiSG3J9jg1l+M4vgbI8id6ABALAoiDAOIggDgIIA4CiIMA4iCAOAggDgKIgwDiIIA4CCAOAoiDAOL8jR7AGGPcbrfoIYRwvV6jhzAuURdCVJP+iigZ3AUg8b/jLYKbACR+DS8RXBaBJH8dr5htrQAk3oad1WBbBSD5duyM5RYBSL49u2Ka4hxgjBx7Yk+yTBLzNcDKH6aW9FdExsy0BZD8c6zEwrpyuLcAEv8z97h4twazCjAzcJL/npkYWUrC00BxTARg9tviWQVcKgDJX6fVswDIy8cCZDnQUMQi9tsrAOX/PB6xS3MU7MW7WaMmrIQAK6Xy8bMKMrQW4NMeef/5ziK0FMB6YdpZhHbbwJ27ko47nlYCeCSomwRtBPBMTCcJWggQkZAuEpQXIDIRHSQovQs4m4BXq/kz33e73UrvDkoLsMq7REXdyomkbAtYvX+4MktXP19ZmJICeF0+VZCgpACzWPTmyv19hnICzM40y8TNflfFKlBOALClpQA7ynbXVlBKgAoltsIYHyklwAw7Z2rHKtBOAFgDAcQpI0Cl3lpprGUEmMGjR3dbB7QSANZBAHHSPg6u1Ed/4nn8WVsHFUCctBVghqhZ9fx7K1crKoA4CCAOAoiDAOIggDgIIA4CiIMA4iCAOAggDgKIgwDiIIA4CCAOAoiDAOKUvhBS+SJGFqgA4iCAOAggDgKIk3YRWP3mbdb/A3iGCiAOAoiDAOKkXQM8Y9FTebv5d6gA4iCAOAggDgKIIyXA7MJOZQE4hoMA2U7wZl8akQGP2H0sQKaAzfJqzNX+FovxljkHsKZasnfhsgbI1gYq4BUzEwFmZhMSzDMTK6sKJrULgO+YCUAVsMFz9o8RsAjs/Cr2T4iaHKYtQOE1azuIfEp5OY7jy/Qbx7nkqlWELDFKcw5ARYhhyy5AbTZ7sCum27aBSGDHzlhuWQM8Q3k/h8ckcjkIohqs4xUzlwrwCNXgd7wni7sAdxDhf6KqZJgAj6jKkKE1phAA4uBpoDgIIA4CiIMA4iCAOAggDgKIgwDiIIA4CCAOAoiDAOIggDgIIA4CiPMPMxH82wgo8LsAAAAASUVORK5CYII=';
   const RESPONSE_PREVIEW_MAX_CHARS = 260;
   const FINAL_TURN_WAIT_MS = 30000;
@@ -47,7 +49,7 @@
   let activeNotification = null;
   const processedEntries = new Set();
   const notifiedCompletionKeys = new Set();
-  let nativeNotificationPermission = null;
+  let notificationChannel = 'not requested';
   const resourceTimingDiagnostics = {
     seen: 0,
     conversationCandidates: 0,
@@ -303,26 +305,32 @@
     try {
       if (ctx.state === 'suspended') await ctx.resume();
       if (ctx.state !== 'running' || performance.now() > deadline) return false;
-      const now = ctx.currentTime;
-      const master = ctx.createGain();
-      master.gain.setValueAtTime(0.0001, now);
-      master.gain.exponentialRampToValueAtTime(0.20, now + 0.015);
-      master.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
-      master.connect(ctx.destination);
+      const now = ctx.currentTime + 0.01;
+      const pitches = [880, 1174.66, 1567.98];
 
-      const first = ctx.createOscillator();
-      first.type = 'sine';
-      first.frequency.setValueAtTime(880, now);
-      first.connect(master);
-      first.start(now);
-      first.stop(now + 0.16);
-
-      const second = ctx.createOscillator();
-      second.type = 'sine';
-      second.frequency.setValueAtTime(1174.66, now + 0.17);
-      second.connect(master);
-      second.start(now + 0.17);
-      second.stop(now + 0.42);
+      // Two ascending three-note bursts. Give each note its own envelope so
+      // the later notes remain just as audible as the first.
+      for (let repeat = 0; repeat < 2; repeat += 1) {
+        pitches.forEach((pitch, index) => {
+          const start = now + repeat * 1.05 + index * 0.26;
+          const oscillator = ctx.createOscillator();
+          const gain = ctx.createGain();
+          oscillator.type = 'triangle';
+          oscillator.frequency.setValueAtTime(pitch, start);
+          gain.gain.setValueAtTime(0.0001, start);
+          gain.gain.linearRampToValueAtTime(CHIME_VOLUME, start + 0.008);
+          gain.gain.setValueAtTime(CHIME_VOLUME, start + 0.16);
+          gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.22);
+          oscillator.connect(gain);
+          gain.connect(ctx.destination);
+          oscillator.onended = () => {
+            oscillator.disconnect();
+            gain.disconnect();
+          };
+          oscillator.start(start);
+          oscillator.stop(start + 0.23);
+        });
+      }
       return true;
     } catch (error) {
       log('Custom sound failed:', error);
@@ -332,11 +340,15 @@
 
   document.addEventListener('pointerdown', () => {
     unlockAudio().catch(() => {});
-    if (pageIsActive()) ensureNativeNotificationPermission().catch(() => {});
+    if (typeof GM_notification !== 'function' && pageIsActive()) {
+      ensureNativeNotificationPermission().catch(() => {});
+    }
   }, { capture: true, passive: true });
   document.addEventListener('keydown', () => {
     unlockAudio().catch(() => {});
-    if (pageIsActive()) ensureNativeNotificationPermission().catch(() => {});
+    if (typeof GM_notification !== 'function' && pageIsActive()) {
+      ensureNativeNotificationPermission().catch(() => {});
+    }
   }, { capture: true, passive: true });
 
   function isStopButton(node) {
@@ -424,47 +436,113 @@
     }
   }
 
-  function playCompletionChimeWithFallback() {
+  async function playCompletionChimeWithFallback() {
     const deadline = performance.now() + 250;
-    return Promise.race([
-      playCompletionChime(deadline),
-      new Promise((resolve) => setTimeout(() => resolve(false), 250))
-    ]);
+    let timeoutId;
+    try {
+      return await Promise.race([
+        playCompletionChime(deadline),
+        new Promise((resolve) => { timeoutId = setTimeout(() => resolve(false), 250); })
+      ]);
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async function ensureNativeNotificationPermission() {
     const NotificationConstructor = PAGE.Notification;
     if (typeof NotificationConstructor !== 'function') return false;
-    if (nativeNotificationPermission === 'granted') return true;
-    nativeNotificationPermission = NotificationConstructor.permission;
-    if (nativeNotificationPermission === 'default') {
+    if (NotificationConstructor.permission === 'default') {
       try {
-        nativeNotificationPermission = await NotificationConstructor.requestPermission();
+        return await NotificationConstructor.requestPermission() === 'granted';
       } catch {
-        nativeNotificationPermission = 'denied';
         return false;
       }
     }
-    return nativeNotificationPermission === 'granted';
+    return NotificationConstructor.permission === 'granted';
   }
 
-  async function createNativeNotification({ title, text, silent }) {
-    if (!await ensureNativeNotificationPermission()) {
-      log('Native notification permission is not granted.');
+  function createNativeNotification({ title, text, silent }) {
+    // Permission prompts need a user gesture, so never ask during completion.
+    // The interaction listeners above arm this fallback only when needed.
+    const NotificationConstructor = PAGE.Notification;
+    if (typeof NotificationConstructor !== 'function' || NotificationConstructor.permission !== 'granted') {
       return null;
     }
+    try {
+      const notification = new NotificationConstructor(title, {
+        body: text,
+        icon: NOTIFICATION_ICON,
+        silent,
+        requireInteraction: true
+      });
+      notification.onclick = () => {
+        try { window.focus(); } catch {}
+        notification.close();
+      };
+      notification.onerror = reportNotificationFailure;
+      return notification;
+    } catch (error) {
+      log('Website notification failed:', error);
+      return null;
+    }
+  }
 
-    const NotificationConstructor = PAGE.Notification;
-    const notification = new NotificationConstructor(title, {
-      body: text,
-      icon: NOTIFICATION_ICON,
-      silent
-    });
-    notification.onclick = () => {
-      try { PAGE.focus?.(); } catch {}
-      notification.close();
-    };
-    return notification;
+  function reportNotificationFailure() {
+    notificationChannel = 'unavailable';
+    console.warn('[ChatGPT Prompt-Bound Alert] Desktop notification unavailable; check userscript-manager and OS notification permissions.');
+    if (!document.body || document.getElementById('chatgpt-notifier-warning')) return;
+    const notice = document.createElement('div');
+    notice.id = 'chatgpt-notifier-warning';
+    notice.setAttribute('role', 'alert');
+    notice.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483647;max-width:360px;padding:16px;background:#222;color:#fff;border:2px solid #fbbf24;border-radius:12px;font:14px/1.5 system-ui;box-shadow:0 8px 24px #0006';
+    const message = document.createElement('span');
+    message.textContent = 'Desktop notification unavailable. Update this script and accept its notification permission in your userscript manager. Check browser and OS notification settings too. ';
+    const close = document.createElement('button');
+    close.type = 'button';
+    close.textContent = 'Dismiss';
+    close.addEventListener('click', () => notice.remove());
+    notice.append(message, close);
+    document.body.append(notice);
+    setTimeout(() => notice.remove(), 20000);
+  }
+
+  function showNativeNotificationOrWarning(details) {
+    const notification = createNativeNotification(details);
+    if (notification) {
+      notificationChannel = 'website fallback';
+      return true;
+    }
+    reportNotificationFailure();
+    return false;
+  }
+
+  function createDesktopNotification({ title, text, silent }) {
+    const details = { title, text, silent };
+    // The manager uses the extension notification permission, so a blocked
+    // chatgpt.com website permission does not silently swallow the toast.
+    if (typeof GM_notification === 'function') {
+      try {
+        const request = GM_notification({
+          ...details,
+          image: NOTIFICATION_ICON,
+          timeout: 20000,
+          highlight: false,
+          tag: `chatgpt-completion:${location.pathname}`,
+          onclick: () => { try { window.focus(); } catch {} }
+        });
+        notificationChannel = 'userscript manager';
+        // Some manager versions expose a Promise. Do not wait for dismissal
+        // before marking the completion as handled, but catch async failures.
+        if (request && typeof request.catch === 'function') {
+          request.catch(() => showNativeNotificationOrWarning(details));
+        }
+        return true;
+      } catch (error) {
+        log('Userscript-manager notification failed:', error);
+      }
+    }
+    return showNativeNotificationOrWarning(details);
   }
 
   async function showReadyNotification(responseText) {
@@ -472,8 +550,7 @@
     const text = truncateResponse(responseText);
 
     const customChimePlayed = await playCompletionChimeWithFallback();
-    await createNativeNotification({
-      kind: 'ready',
+    createDesktopNotification({
       title,
       text,
       silent: customChimePlayed
@@ -557,11 +634,7 @@
   GM_registerMenuCommand('Test sound + notification', async () => {
     const customChimePlayed = await playCompletionChimeWithFallback();
 
-    // Important: invoking this command opens the userscript manager popup,
-    // which temporarily makes document.hasFocus() false. Never arm
-    // dismiss-on-return for the test itself, otherwise closing that popup races
-    // with GM_notification and makes the toast appear random.
-    await createNativeNotification({
+    createDesktopNotification({
       title: 'ChatGPT Prompt-Bound test',
       text: 'If you heard a sound and saw this notification, both channels work.',
       silent: customChimePlayed
@@ -581,6 +654,9 @@
       resolvedLatestAnswer: answerBoundToLatestPrompt().slice(0, 260),
       processedEntryCount: processedEntries.size,
       resourceTiming: { ...resourceTimingDiagnostics },
+      notificationChannel,
+      managerNotificationAvailable: typeof GM_notification === 'function',
+      websiteNotificationPermission: PAGE.Notification?.permission || 'unsupported',
       turns
     });
   });
