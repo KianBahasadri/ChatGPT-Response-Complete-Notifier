@@ -22,6 +22,12 @@ Hello! How can I help you today? What would you like to...
 
 The **title is the current ChatGPT conversation name**. The **body is a truncated preview of the answer to the latest prompt**.
 
+## KianBahasadri's fork
+
+[Install the userscript](https://raw.githubusercontent.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/main/userscript/chatgpt-answer-notifier.user.js).
+
+Installation, update checks, and support links point to this fork. The userscript includes a locally generated two-tone completion chime; no audio file is downloaded. After installing, reload ChatGPT and interact with the page once to enable audio. Use **Test sound + notification** in your userscript manager's menu to check it. Muted tabs, browser autoplay rules, and operating-system notification settings may still suppress alerts.
+
 ## Pick your version
 
 This repository ships the same behavior in two forms.
