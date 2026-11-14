@@ -85,15 +85,18 @@ test('a manager promise that waits for dismissal does not block completion handl
 test('reload during an active response recovers without its original network request', async t => {
   const clock = new Clock(), session = new MemoryStorage(), local = new MemoryStorage();
   const first = loadNotifier(t, { clock, session, local, view: { busy: true, answer: 'Working...' } });
+  assert.equal(first.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'tracking');
   await first.advance(500);
   first.close();
   const refreshed = loadNotifier(t, { clock, session, local, view: { busy: true, answer: 'Still working...' } });
+  assert.equal(refreshed.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'tracking');
   await refreshed.advance(10000);
   assert.equal(refreshed.managerCalls.length, 0);
   refreshed.setView({ busy: false, answer: 'Finished after the reload.' });
   await refreshed.advance(4000);
   assert.equal(refreshed.managerCalls.length, 1);
   assert.equal(refreshed.managerCalls[0].text, 'Finished after the reload.');
+  assert.equal(refreshed.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'complete');
 });
 
 test('completion during the reload itself is recovered after hydration settles', async t => {
@@ -101,6 +104,7 @@ test('completion during the reload itself is recovered after hydration settles',
   const first = loadNotifier(t, { clock, session, local, view: { busy: true } });
   first.close();
   const refreshed = loadNotifier(t, { clock, session, local, blockedAudio: true });
+  assert.equal(refreshed.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'recovering');
   await refreshed.advance(4500);
   assert.equal(refreshed.managerCalls.length, 0);
   await refreshed.advance(4000);
@@ -125,6 +129,7 @@ test('opening an old finished conversation produces no historical alert', async 
   await notifier.advance(15000);
   assert.equal(notifier.managerCalls.length, 0);
   assert.equal(notifier.resourceConfig().buffered, false);
+  assert.equal(notifier.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'idle');
 });
 
 test('DOM monitoring detects completion even if no network observer is available', async t => {
@@ -155,6 +160,8 @@ test('manual Stop stays suppressed across a reload', async t => {
   const clock = new Clock(), session = new MemoryStorage(), local = new MemoryStorage();
   const first = loadNotifier(t, { clock, session, local, view: { busy: true, answer: 'Partial answer' } });
   first.stop();
+  await first.advance(100);
+  assert.equal(first.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'stopped');
   first.setView({ busy: false });
   await first.advance(4000);
   first.close();
@@ -171,9 +178,16 @@ test('manual Stop stays suppressed across a reload', async t => {
 
 test('navigation cannot attribute an unfinished response to a different conversation', async t => {
   const notifier = loadNotifier(t, { view: { busy: true, answer: 'Working in A' } });
+  const badge = notifier.document.getElementById('chatgpt-notifier-status');
+  assert.equal(badge.getAttribute('data-state'), 'tracking');
+  assert.equal(badge.children[1].children[1].textContent, 'Example conversation');
+  notifier.document.title = 'Other chat - ChatGPT';
   notifier.setView({ context: '/c/other', userId: 'other-user', busy: false, answer: 'Old answer in B' });
   await notifier.advance(10000);
   assert.equal(notifier.managerCalls.length, 0);
+  assert.equal(badge.getAttribute('data-state'), 'idle');
+  assert.equal(badge.children[1].children[1].textContent, 'Other chat');
+  assert.match(badge.title, /\/c\/other$/);
   notifier.setView({ context: '/c/example', userId: 'user-1', answer: 'A finished while you were away.' });
   await notifier.advance(9000);
   assert.equal(notifier.managerCalls.length, 1);
@@ -196,6 +210,7 @@ test('partial text marked as an error is not announced as successful completion'
   notifier.setView({ busy: false, error: true });
   await notifier.advance(10000);
   assert.equal(notifier.managerCalls.length, 0);
+  assert.equal(notifier.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'failed');
   notifier.setView({ busy: true, error: false, answerId: 'retry-answer' });
   await notifier.advance(1000);
   notifier.setView({ busy: false, answer: 'Successful retry.' });
@@ -210,11 +225,26 @@ test('hydration showing an older prompt cannot consume a recovered pending run',
   const refreshed = loadNotifier(t, { clock, session, local, view: {
     userId: 'older-user', userText: 'Older question', answer: 'Older answer', busy: true, readyState: 'loading'
   } });
+  assert.equal(refreshed.document.getElementById('chatgpt-notifier-status').getAttribute('data-state'), 'recovering');
   await refreshed.advance(3000);
   refreshed.setView({ userId: 'user-1', userText: 'Question', busy: false, readyState: 'complete', answer: 'Current answer.' });
   await refreshed.advance(6000);
   assert.equal(refreshed.managerCalls.length, 1);
   assert.equal(refreshed.managerCalls[0].text, 'Current answer.');
+});
+
+test('the status cannot claim tracking until the running response is bound to a prompt', async t => {
+  const notifier = loadNotifier(t, { view: { busy: true, userText: null } });
+  const badge = notifier.document.getElementById('chatgpt-notifier-status');
+  assert.equal(badge.getAttribute('data-state'), 'detecting');
+  assert.equal(badge.getAttribute('role'), 'status');
+  notifier.setView({ userText: 'The active prompt' });
+  await notifier.advance(100);
+  assert.equal(badge.getAttribute('data-state'), 'tracking');
+  notifier.setView({ busy: false });
+  await notifier.advance(100);
+  assert.equal(badge.getAttribute('data-state'), 'settling');
+  assert.equal(notifier.managerCalls.length, 0);
 });
 
 test('regeneration can notify again even if its final answer text is identical', async t => {

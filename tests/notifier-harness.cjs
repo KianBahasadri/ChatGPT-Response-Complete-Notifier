@@ -77,13 +77,15 @@ function loadNotifier(t, options = {}) {
     constructor(role = '', text = '', id = '') {
       this.role = role; this.textContent = text; this.id = id;
       this.children = []; this.style = {}; this.parentElement = null;
+      this.attributes = new Map();
     }
     getAttribute(name) {
+      if (this.attributes.has(name)) return this.attributes.get(name);
       if (name === 'data-turn') return this.role;
       if (name === 'data-message-id') return this.messageId || '';
       return '';
     }
-    setAttribute() {}
+    setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getClientRects() { return this.hidden ? [] : [{}]; }
     matches(selector) { return Boolean(this.role && selector.includes(`"${this.role}"`)); }
     querySelector(selector) {

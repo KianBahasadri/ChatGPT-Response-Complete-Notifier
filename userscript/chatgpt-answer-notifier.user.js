@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Prompt-Bound Completion Alert
 // @namespace    https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
-// @version      1.3.0
-// @description  Loud completion alerts with reload recovery, DOM monitoring, and duplicate suppression.
+// @version      1.4.0
+// @description  Loud completion alerts with live tracking status, reload recovery, and duplicate suppression.
 // @author       Local
 // @homepageURL  https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
 // @supportURL   https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/issues
@@ -23,7 +23,7 @@
 (function () {
   'use strict';
 
-  const VERSION = '1.3.0';
+  const VERSION = '1.4.0';
   const CHIME_VOLUME = 0.70;
   const RESPONSE_PREVIEW_MAX_CHARS = 260;
   const STOP_BUTTON_SELECTOR = 'button[data-testid="stop-button"], button[data-testid="fruitjuice-stop-button"], button[aria-label="Stop streaming"], button[aria-label="Stop generating"]';
@@ -272,7 +272,7 @@
     const notice = document.createElement('div');
     notice.id = 'chatgpt-notifier-warning';
     notice.setAttribute('role', 'alert');
-    notice.style.cssText = 'position:fixed;right:24px;bottom:24px;z-index:2147483647;max-width:360px;padding:16px;background:#222;color:#fff;border:2px solid #fbbf24;border-radius:12px;font:14px/1.5 system-ui;box-shadow:0 8px 24px #0006';
+    notice.style.cssText = 'position:fixed;right:12px;bottom:88px;z-index:2147483647;max-width:min(360px,calc(100vw - 24px));box-sizing:border-box;padding:16px;background:#222;color:#fff;border:2px solid #fbbf24;border-radius:12px;font:14px/1.5 system-ui;box-shadow:0 8px 24px #0006';
     const message = document.createElement('span');
     message.textContent = 'Desktop notification unavailable. Update this script and accept its notification permission in your userscript manager. Check browser and OS notification settings too. ';
     const close = document.createElement('button');
@@ -479,6 +479,82 @@
     return { context: contextKey(), prompt, answer, busy, error, userIds };
   }
 
+  function trackingState(view) {
+    if (suspended) return 'paused';
+    if (!view) return 'unavailable';
+    const run = records.get(view.context);
+    const bound = run && samePrompt(run.prompt, view.prompt);
+    if (run?.status === 'pending' && (!bound || document.readyState === 'loading' ||
+      (!observedHere.has(run.id) && Date.now() < warmupUntil))) return 'recovering';
+    if (bound) {
+      if (run.status === 'pending') return view.busy ? 'tracking' : 'settling';
+      if (run.status === 'notified') return 'complete';
+      if (run.status === 'stopped') return 'stopped';
+      if (run.status === 'failed') return 'failed';
+    }
+    if (view.busy) return 'detecting';
+    return document.readyState === 'loading' ? 'loading' : 'idle';
+  }
+
+  const TRACKING_STATES = {
+    tracking: ['Tracking response', '#4ade80', 'The latest prompt is linked to this chat. Watching for completion.'],
+    settling: ['Confirming completion', '#fbbf24', 'Waiting for the answer to stop changing before alerting.'],
+    recovering: ['Reconnecting response', '#fbbf24', 'Reconnecting a saved response to the current chat.'],
+    detecting: ['Looking for active prompt', '#fbbf24', 'Generation is visible, but its prompt has not been identified yet.'],
+    complete: ['Response complete', '#93c5fd', 'The response finished and its completion was handled.'],
+    stopped: ['Stopped', '#cbd5e1', 'This response was stopped. No completion alert is scheduled.'],
+    failed: ['Response error', '#fca5a5', 'An error was detected. No success alert is scheduled.'],
+    loading: ['Checking page', '#cbd5e1', 'Waiting for the chat to load.'],
+    idle: ['Idle', '#cbd5e1', 'No running response detected in this chat.'],
+    paused: ['Paused', '#cbd5e1', 'Monitoring resumes when this page returns.'],
+    unavailable: ['Unable to read page', '#fca5a5', 'The next page update will retry response detection.']
+  };
+
+  function updateTrackingStatus(view) {
+    try {
+      if (!document.body) return;
+      const state = trackingState(view);
+      const [label, color, description] = TRACKING_STATES[state];
+      const title = cleanSessionTitle(document.title);
+      let badge = document.getElementById('chatgpt-notifier-status');
+      if (!badge) {
+        badge = document.createElement('div');
+        badge.id = 'chatgpt-notifier-status';
+        badge.setAttribute('role', 'status');
+        badge.setAttribute('aria-live', 'polite');
+        badge.setAttribute('aria-atomic', 'true');
+        badge.style.cssText = 'all:initial;position:fixed;right:12px;bottom:12px;z-index:2147483646;display:flex;align-items:center;gap:9px;box-sizing:border-box;max-width:calc(100vw - 24px);padding:9px 12px;border:1px solid #475569;border-radius:12px;background:#1e293b;color:#f8fafc;box-shadow:0 4px 16px #0003;font:12px/1.5 system-ui,sans-serif;pointer-events:auto';
+        const dot = document.createElement('span');
+        dot.setAttribute('aria-hidden', 'true');
+        dot.style.cssText = 'display:block;flex:none;width:8px;height:8px;border-radius:50%';
+        const text = document.createElement('div');
+        text.style.cssText = 'min-width:0;max-width:300px';
+        const heading = document.createElement('div');
+        heading.style.cssText = 'font-weight:600';
+        const chat = document.createElement('div');
+        chat.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#cbd5e1';
+        text.append(heading, chat);
+        badge.append(dot, text);
+        document.body.append(badge);
+      }
+      const heading = badge.children[1].children[0];
+      const chat = badge.children[1].children[1];
+      // This UI is inside the observed document. Only write changed values so
+      // its own mutations cannot cause an endless series of scans.
+      if (badge.getAttribute('data-state') !== state) {
+        badge.setAttribute('data-state', state);
+        badge.children[0].style.backgroundColor = color;
+      }
+      const headingText = `Completion alert: ${label}`;
+      if (heading.textContent !== headingText) heading.textContent = headingText;
+      if (chat.textContent !== title) chat.textContent = title;
+      const tooltip = `${description}\nChat: ${title}\n${location.pathname}`;
+      if (badge.title !== tooltip) badge.title = tooltip;
+    } catch (error) {
+      log('Tracking status could not be displayed:', error);
+    }
+  }
+
   function startRun(view) {
     const now = Date.now();
     const run = {
@@ -538,6 +614,7 @@
     run.updatedAt = Date.now();
     saveRuns();
     candidate = null;
+    scheduleScan();
   }
 
   function stillReady(run, answer) {
@@ -596,8 +673,9 @@
 
   function scan() {
     if (suspended) return;
+    let view;
     try {
-      const view = snapshot();
+      view = snapshot();
       const now = Date.now();
       adoptDraftRun(view);
       if (currentContext !== view.context) {
@@ -668,6 +746,8 @@
       }
     } catch (error) {
       log('DOM scan failed; waiting for the next page update:', error);
+    } finally {
+      updateTrackingStatus(view);
     }
   }
 
@@ -734,6 +814,7 @@
     clearTimeout(scanTimer); scanTimer = null;
     domObserver?.disconnect(); domObserver = null;
     networkObserver?.disconnect(); networkObserver = null;
+    updateTrackingStatus(previousSnapshot);
     if (audioContext?.close) audioContext.close().catch(() => {});
     audioContext = null;
   }
@@ -748,6 +829,7 @@
     stopped.status = 'stopped'; stopped.stopLatch = true; stopped.updatedAt = Date.now();
     candidate = null;
     saveRuns();
+    scheduleScan();
   }, true);
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') candidate = null;

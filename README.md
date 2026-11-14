@@ -11,7 +11,11 @@ A loud completion chime and desktop notification for ChatGPT, with recovery afte
 3. Reload ChatGPT and click or type inside the page once to enable audio.
 4. Open your userscript manager's menu on ChatGPT and choose **Test sound + notification**.
 
-The current userscript version is **1.3.0**. Its installation, update, homepage, and support URLs point to this fork. Keep the same installed copy when updating; enabling an additional old notifier can produce extra alerts.
+The current userscript version is **1.4.0**. Its installation, update, homepage, and support URLs point to this fork. Keep the same installed copy when updating; enabling an additional old notifier can produce extra alerts.
+
+A small status badge in ChatGPT's bottom-right corner shows which chat the script is watching. A green **Tracking response** indicator confirms it has identified the latest prompt in the displayed chat and is monitoring its running response. The chat title appears underneath; hover for the full title and conversation path.
+
+The badge shows **Reconnecting response** during reload recovery and **Confirming completion** while the answer settles. It also distinguishes idle chats, completed responses, manual stops, and errors. When you navigate to another chat, the badge reflects that chat's tracking state.
 
 ## Recovery and completion detection
 
@@ -61,14 +65,14 @@ Run:
 node --test tests/userscript.test.cjs
 ```
 
-The 38 deterministic regression tests simulate DOM updates, reloads, storage, notifications, browser lifecycle events, and audio scheduling. They cover recovery during and after reload, background completion, duplicate tabs, manual Stop, retries, long jobs, navigation, partial errors, optimistic IDs, storage failures, stale delivery claims, and blocked audio.
+The deterministic regression tests simulate DOM updates, reloads, storage, notifications, browser lifecycle events, and audio scheduling. They cover the tracking badge, recovery during and after reload, background completion, duplicate tabs, manual Stop, retries, long jobs, navigation, partial errors, optimistic IDs, storage failures, stale delivery claims, and blocked audio.
 
 ## Repository contents
 
 - `userscript/chatgpt-answer-notifier.user.js`: the maintained userscript.
 - `userscript/chatgpt-answer-notifier.meta.js`: its matching metadata header for update checks. Bump both metadata and code versions together.
 - `tests/userscript.test.cjs` and `tests/notifier-harness.cjs`: regression tests and deterministic browser-API fixtures.
-- `extension/`: the original Chromium Manifest V3 extension. The 1.3.0 recovery changes described above apply to the userscript; the separate extension retains its upstream implementation.
+- `extension/`: the original Chromium Manifest V3 extension. The recovery and tracking badge described above apply to the userscript; the separate extension retains its upstream implementation.
 - `LICENSE`: the project's license.
 
 The Chromium extension supports manual source installation through **Load unpacked** on Chromium 116+ browsers. There is no Firefox extension package here; Firefox users should use the userscript with a compatible manager. This project is distributed through source/manual installation rather than extension stores.
