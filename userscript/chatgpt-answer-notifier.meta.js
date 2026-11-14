@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         ChatGPT Prompt-Bound Completion Alert
 // @namespace    https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
-// @version      1.2.0
-// @description  Loud repeating chime + desktop notification when ChatGPT finishes, with previews bound to the latest user prompt.
+// @version      1.3.0
+// @description  Loud completion alerts with reload recovery, DOM monitoring, and duplicate suppression.
 // @author       Local
 // @homepageURL  https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier
 // @supportURL   https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/issues

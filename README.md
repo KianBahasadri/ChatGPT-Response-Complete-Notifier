@@ -1,166 +1,76 @@
-# ChatGPT Answer Notifier
+# ChatGPT Completion Notifier
 
-> **Stop babysitting the tab.** Get a sound and a native desktop notification when ChatGPT finishes answering - even when the ChatGPT tab is unfocused.
+A loud completion chime and desktop notification for ChatGPT, with recovery after refreshing an active conversation. This fork is maintained under [KianBahasadri/ChatGPT-Response-Complete-Notifier](https://github.com/KianBahasadri/ChatGPT-Response-Complete-Notifier), based on [ramhaidar's project](https://github.com/ramhaidar/ChatGPT-Response-Complete-Notifier).
 
-![Chromium 116+](https://img.shields.io/badge/Chromium-116%2B-4285F4?logo=googlechrome&logoColor=white)
-![Manifest V3](https://img.shields.io/badge/Manifest-V3-5f6368)
-![Userscript](https://img.shields.io/badge/Userscript-Tampermonkey%20%7C%20Violentmonkey-111)
+[Install or update the userscript](https://raw.githubusercontent.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/main/userscript/chatgpt-answer-notifier.user.js).
 
-ChatGPT Answer Notifier is deliberately small: no account, no backend, no analytics, no polling loop that needs the tab to stay active.
+## Install and check
 
-When a response completes, it gives you **both**:
+1. Install Tampermonkey or Violentmonkey in your browser.
+2. Open the userscript link above and confirm the installation or update. Accept its notification grant if your manager requests it.
+3. Reload ChatGPT and click or type inside the page once to enable audio.
+4. Open your userscript manager's menu on ChatGPT and choose **Test sound + notification**.
 
-- a short completion sound
-- a native browser/OS notification
+The current userscript version is **1.3.0**. Its installation, update, homepage, and support URLs point to this fork. Keep the same installed copy when updating; enabling an additional old notifier can produce extra alerts.
 
-The notification is useful, not generic:
+## Recovery and completion detection
 
-```text
-Greeting exchange
-Hello! How can I help you today? What would you like to...
+The userscript observes the current conversation's rendered state. A visible generation control or streaming marker arms the latest user prompt. Once generation ends, it waits for the corresponding answer to stop changing before notifying. Fresh conversation-resource completion events are additional hints; they are not required for reload recovery.
+
+Pending runs are recorded before completion, so refreshing does not discard their tracking. After a refresh, the script waits for the page to settle, reconnects the saved pending prompt, and can notify even if the answer finished while the page was reloading. Opening an already-finished chat without pending state does not create a historical alert.
+
+Recovery also handles temporary message IDs being replaced, assignment of a new conversation URL, and back/forward restoration. Long jobs are not subject to the previous ten-minute timeout. Manual Stop clicks and explicit error markers suppress success alerts; a later retry can still notify normally.
+
+A document observer catches UI changes, and a periodic fallback catches missed updates. The script does not wrap ChatGPT's fetch function, capture request bodies, or clear the page's resource-timing buffer.
+
+## Sound and desktop notifications
+
+The chime is generated locally: two ascending three-note bursts over roughly 1.8 seconds. Every note has its own envelope with a 0.70 peak amplitude, so later notes do not fade into near silence. No sound file is downloaded.
+
+Desktop notifications use the manager's **GM_notification** API. That channel does not depend on ChatGPT's website notification permission. If the manager API fails, an already-permitted website notification is used. If both channels are unavailable, the script shows an on-page warning with permission guidance.
+
+Audio initialization cannot hold up the desktop alert indefinitely. If audio remains blocked, the script requests the normal notification sound and avoids playing a delayed custom chime after you return to the page.
+
+## Duplicate suppression and saved state
+
+Completed responses are remembered across reloads. A regeneration, or a different prompt with the same answer text, can still generate a fresh notification.
+
+Tabs share bounded delivery receipts. Web Locks serialize short bookkeeping operations when available; a short-lived ownership claim provides best-effort duplicate suppression otherwise. A reload that interrupts delivery can recover after its abandoned claim expires. Browser locks are never held while waiting for audio or a notification to be dismissed.
+
+The script saves only conversation/message identifiers, prompt/answer fingerprints, timestamps, and delivery status. It does not persist prompt or answer text. Pending state uses this tab's session storage; cross-tab receipts use local storage on ChatGPT's origin. State expires after 48 hours, with at most 24 conversation records and 128 receipts retained. Unfinished runs are prioritized over finished history. If storage is unavailable or full, normal alerts continue with in-memory state, with reduced recovery or cross-tab guarantees.
+
+## Controls
+
+- **Test sound + notification** checks both alert channels.
+- **Recheck running response** immediately scans the current conversation again.
+- **Log prompt-bound status** prints the version, pending-run count, storage availability, audio state, and notification channel to the local console. It does not log the content of your chats.
+
+## Practical limits
+
+Keep the agent conversation open in a tab. Refreshing that tab is supported. If you switch to a different conversation in the same tab, the previous run is remembered and checked when you return; keep separate conversations in separate tabs to observe them concurrently.
+
+A userscript cannot keep running after every relevant tab is closed, the browser is exited, or the browser fully suspends the page. A suspended page checks again when it resumes. Notification delivery still depends on Firefox/browser and operating-system notification settings, including Do Not Disturb. After a refresh, autoplay rules may require another click or keystroke before the custom chime can play; the desktop notification path does not wait for that gesture.
+
+ChatGPT's DOM can change. The tests exercise known structural patterns and failure paths, and the menu test lets you verify actual sound and desktop delivery on your machine.
+
+## Validation
+
+Run:
+
+```sh
+node --test tests/userscript.test.cjs
 ```
 
-The **title is the current ChatGPT conversation name**. The **body is a truncated preview of the answer to the latest prompt**.
+The 38 deterministic regression tests simulate DOM updates, reloads, storage, notifications, browser lifecycle events, and audio scheduling. They cover recovery during and after reload, background completion, duplicate tabs, manual Stop, retries, long jobs, navigation, partial errors, optimistic IDs, storage failures, stale delivery claims, and blocked audio.
 
-## KianBahasadri's fork
+## Repository contents
 
-[Install the userscript](https://raw.githubusercontent.com/KianBahasadri/ChatGPT-Response-Complete-Notifier/main/userscript/chatgpt-answer-notifier.user.js).
+- `userscript/chatgpt-answer-notifier.user.js`: the maintained userscript.
+- `userscript/chatgpt-answer-notifier.meta.js`: its matching metadata header for update checks. Bump both metadata and code versions together.
+- `tests/userscript.test.cjs` and `tests/notifier-harness.cjs`: regression tests and deterministic browser-API fixtures.
+- `extension/`: the original Chromium Manifest V3 extension. The 1.3.0 recovery changes described above apply to the userscript; the separate extension retains its upstream implementation.
+- `LICENSE`: the project's license.
 
-Installation, update checks, and support links point to this fork. Version **1.2.0** plays a louder, roughly 1.8-second alert: two ascending three-note bursts, generated locally without downloading an audio file. Each note has its own volume envelope, so the later notes are as audible as the first.
+The Chromium extension supports manual source installation through **Load unpacked** on Chromium 116+ browsers. There is no Firefox extension package here; Firefox users should use the userscript with a compatible manager. This project is distributed through source/manual installation rather than extension stores.
 
-Desktop notifications use **Tampermonkey/Violentmonkey's notification API**, with the required `GM_notification` grant. This does not depend on granting `chatgpt.com` website notification permission. When upgrading, accept the new notification grant in your userscript manager, reload ChatGPT, and interact with the page once to enable audio. Use **Test sound + notification** in the manager's menu to check both channels.
-
-If the manager API is unavailable or fails, the script tries an already-permitted website notification. If neither channel is available, it displays an on-page warning with permission guidance. A browser or operating system can still suppress notifications, including through Do Not Disturb or disabled notifications for Firefox/the userscript manager. Muted tabs and autoplay rules can suppress the sound.
-
-Run the userscript's regression checks with `node --test tests/userscript.test.cjs`. They cover completion in a background tab, blocked website permission, notification fallback, blocked audio, and the repeated alert's audio scheduling. Actual desktop delivery and perceived loudness still need to be checked in the target browser.
-
-## Pick your version
-
-This repository ships the same behavior in two forms.
-
-### Chromium extension
-
-Use [`extension/`](./extension/) if you want the strongest background-tab behavior on Chrome, Edge, Brave, Vivaldi, and other Chromium browsers.
-
-The extension uses a Manifest V3 service worker to detect ChatGPT conversation-request completion, then arms a small content-script watcher for the prompt-bound final turn. The watcher is structurally bound to the latest user prompt, so an older answer cannot be selected. The service worker then plays the sound through an offscreen document and emits the native notification.
-
-**Requirements:** Chromium 116 or newer.
-
-### Userscript
-
-Use [`userscript/chatgpt-answer-notifier.user.js`](./userscript/chatgpt-answer-notifier.user.js) if you prefer a userscript manager.
-
-Recommended managers:
-
-- [Tampermonkey](https://www.tampermonkey.net/)
-- [Violentmonkey](https://violentmonkey.github.io/)
-
-The userscript observes completion of the same ChatGPT conversation resource, then keeps a prompt-bound DOM watcher armed until the answer after the latest user prompt is rendered. It uses the userscript notification API plus background-capable audio and does not use a polling loop.
-
-## Install
-
-### Chrome / Edge / Brave / other Chromium browsers
-
-1. Download or clone this repository.
-2. Open your browser's extensions page:
-   - Chrome / Brave / Vivaldi: `chrome://extensions`
-   - Edge: `edge://extensions`
-3. Enable **Developer mode**.
-4. Click **Load unpacked**.
-5. Select the [`extension`](./extension/) directory.
-6. Reload any open `chatgpt.com` tabs.
-
-The extension popup includes a **Test sound + notification** button so both notification channels can be verified without waiting for a real answer.
-
-### Tampermonkey / Violentmonkey
-
-1. Install [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/).
-2. Open [`userscript/chatgpt-answer-notifier.user.js`](./userscript/chatgpt-answer-notifier.user.js).
-3. On GitHub, open the file as **Raw** and let your userscript manager install it.
-4. Reload `chatgpt.com`.
-
-The userscript also exposes a **Test sound + notification** command from the userscript-manager menu.
-
-The userscript declares `@updateURL` / `@downloadURL` pointing at this repository, so Tampermonkey and Violentmonkey can check for a newer version and update it in place. `userscript/chatgpt-answer-notifier.meta.js` holds only the metadata block and backs the cheap update check; bump `@version` in both files when you release so installed copies pick the change up.
-
-## Why it still works when the tab is unfocused
-
-A notification feature is not very useful if it only works while you are already staring at the tab.
-
-The two builds avoid using DOM polling as the primary completion signal:
-
-```text
-You send a prompt
-      |
-      v
-ChatGPT streams the answer
-      |
-      v
-Conversation network request completes
-      |
-      v
-Arm prompt-bound completion watcher
-      |
-      v
-Read the final assistant turn after that prompt
-      |
-      +-------------------+
-      |                   |
-      v                   v
-    sound          native notification
-```
-
-The final answer preview is **prompt-bound**. The extractor finds the latest user turn and only considers assistant turns that occur after it. An older response therefore cannot be selected just because React has not finished repainting some unrelated part of the UI. If no answer text appears, the watcher falls back to a generic "Response finished." alert after a short timeout.
-
-## Why two implementations?
-
-Browser extensions and userscripts do not expose identical APIs.
-
-The Chromium extension can use `chrome.webRequest.onCompleted`, `chrome.notifications`, and an offscreen document directly. That is the most robust implementation for Chromium.
-
-The userscript uses the closest userscript-friendly equivalent: browser resource-completion observation plus `GM_notification`. The user-facing result is intentionally the same.
-
-## Privacy
-
-There is no telemetry, remote service, analytics endpoint, or account system in this project.
-
-The extension is scoped to `https://chatgpt.com/*`. The userscript is also matched only to `https://chatgpt.com/*`. Notification text is read locally from the open conversation and sent to the browser/OS notification system on your own machine.
-
-You can inspect every line that runs in the browser in this repository.
-
-## Distribution policy
-
-**The Chromium extension is intentionally not published to the Chrome Web Store, Microsoft Edge Add-ons, Firefox Add-ons, or any other browser-extension store.**
-
-That is not an unfinished release step. Source/manual installation is the intended distribution model for this project.
-
-There is also no separate Firefox extension package. Firefox users who want to try the feature should use the userscript through a compatible manager such as [Tampermonkey](https://www.tampermonkey.net/) or [Violentmonkey](https://violentmonkey.github.io/). Browser-specific notification and audio behavior can vary.
-
-## Repository layout
-
-```text
-.
-├── extension/
-│   ├── manifest.json
-│   ├── service-worker.js
-│   ├── content-script.js
-│   ├── offscreen.html
-│   ├── offscreen.js
-│   ├── popup.html
-│   ├── popup.js
-│   └── icons/
-├── userscript/
-│   ├── chatgpt-answer-notifier.user.js
-│   └── chatgpt-answer-notifier.meta.js
-└── README.md
-```
-
-## Notes
-
-This project depends on implementation details of `chatgpt.com`, including its conversation request path and rendered conversation-turn structure. OpenAI can change those details at any time. If ChatGPT changes internally, the notifier may need a small compatibility update.
-
-Operating-system settings still win: Do Not Disturb / Focus Assist, disabled browser notifications, or a muted browser can suppress the corresponding alert.
-
----
-
-Not affiliated with or endorsed by OpenAI. ChatGPT is a trademark of OpenAI.
+No backend, telemetry, or external analytics service is added. Notification previews are read locally and passed to the browser/OS notification system. Not affiliated with or endorsed by OpenAI.
